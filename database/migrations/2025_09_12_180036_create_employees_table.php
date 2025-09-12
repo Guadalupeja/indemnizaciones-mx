@@ -9,16 +9,13 @@ return new class extends Migration {
     {
         Schema::create('employees', function (Blueprint $table) {
             $table->id();
-            $table->string('name', 120);
+            $table->string('name');
             $table->date('start_date');
-            $table->date('end_date');
+            $table->date('end_date')->nullable();
             $table->decimal('daily_salary', 10, 2);
             $table->decimal('daily_integrated_salary', 10, 2)->nullable();
-            $table->enum('zone', ['general', 'frontera'])->default('general');
+            $table->enum('zone', ['general','frontera'])->default('general');
             $table->timestamps();
-
-            // Útil para tu updateOrCreate (name + fechas)
-            $table->index(['name', 'start_date', 'end_date'], 'emp_name_dates_idx');
         });
     }
 
@@ -27,4 +24,5 @@ return new class extends Migration {
         Schema::dropIfExists('employees');
     }
 };
+
 
