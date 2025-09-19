@@ -7,62 +7,175 @@ use App\Models\Employee;
 
 class LiquidationCalculator
 {
-    /**                               
-     * Cálculo principal (arts. 48-50 LFT)               
-     * @return array<string,float>  Montos detallados y total              
-     */                               
-    public function indemnizacion(Employee $e): array
+    /**
+     * Indemnización por despido injustificado:
+     *  - 3 meses de SDI (arts. 48–50 LFT)
+     *  - 20 días por año (cuando procede) con fracción
+     *  - Vacaciones + prima 25% proporcionales (año de servicio en curso) (arts. 76 y 80)
+     *  - Aguinaldo proporcional (año calendario) (art. 87)
+     *  - Prima de antigüedad (art. 162) con tope 2× SM — se paga aun con <15 años
+     */
+    public function indemnizacion(Employee $e, bool $aplicanVeinteDiasPorAnio = true): array
     {
-        // 1) Años completos de servicio (mínimo 1)
-        $years = max(1, $e->start_date->diffInYears($e->end_date));
+        $sd  = (float) $e->daily_salary;
+        $sdi = (float) ($e->daily_integrated_salary ?: $e->daily_salary);
 
-        // 2) Salario Diario Integrado (SDI) recomendado; si no se capturó, usar salario diario
-        $sdi = $e->daily_integrated_salary ?: $e->daily_salary;
+        // Antigüedad (entera y fraccionaria)
+        $yearsInt   = $e->start_date->diffInYears($e->end_date);             // años completos (int)
+        $yearsFrac  = $this->yearsExact($e->start_date, $e->end_date);       // p. ej. 3.2986…
 
-        /* ─────────────────── Indemnización constitucional ─────────────────── */
-        $threeMonths = $sdi * 90;                         // 3 meses de SDI  :contentReference[oaicite:0]{index=0}
-        $twentyPerYear = $sdi * 20 * $years;              // +20 días por cada año :contentReference[oaicite:1]{index=1}
+        /* ───────── Indemnización constitucional ───────── */
+        $threeMonths   = $sdi * 90;
+        $twentyPerYear = $aplicanVeinteDiasPorAnio ? ($sdi * 20 * $yearsFrac) : 0.0;
 
-        /* ─────────────────── Prestaciones proporcionales ─────────────────── */
-        // Días transcurridos en el año corriente (para aguinaldo y vacaciones)
-        $yearStart     = Carbon::parse($e->end_date)->startOfYear();
-        $daysThisYear  = $yearStart->diffInDays($e->end_date) + 1;
+        /* ───────── Prestaciones proporcionales ───────── */
+        [$vacDays, $vacPay, $vacPremium] = $this->vacacionesProporcionales($e, $sd);
+        $aguinaldo = $this->aguinaldoProporcional($e, $sd);
 
-        // 2.1 Vacaciones según art. 76 reformado (12 días el 1.er año…) :contentReference[oaicite:2]{index=2}
-        $vacDays       = $this->vacationDays($years) * ($daysThisYear / 365);
-        $vacPay        = $sdi * $vacDays;                 // Salario de vacaciones
-        $vacPremium    = $vacPay * 0.25;                  // Prima 25 % art. 80 :contentReference[oaicite:3]{index=3}
+        /* ───────── Prima de antigüedad (siempre en despido) ───────── */
+        $seniority = $this->primaAntiguedad($e, /*pagaSin15Anios=*/true, /*proporcional=*/true);
 
-        // 2.2 Aguinaldo proporcional — 15 días de salario / 365 art. 87 :contentReference[oaicite:4]{index=4}
-        $aguinaldo     = $sdi * 15 * ($daysThisYear / 365);
-
-        /* ─────────────────── Total ─────────────────── */
-        $total = $threeMonths + $twentyPerYear + $vacPay + $vacPremium + $aguinaldo;
+        $total = $threeMonths + $twentyPerYear + $vacPay + $vacPremium + $aguinaldo + $seniority;
 
         return [
-            'three_months'     => round($threeMonths, 2),
-            'twenty_per_year'  => round($twentyPerYear, 2),
-            'vacation_pay'     => round($vacPay, 2),
-            'vacation_premium' => round($vacPremium, 2),
-            'aguinaldo'        => round($aguinaldo, 2),
-            'total'            => round($total, 2),
+            'type'              => 'indemnizacion',
+            'years'             => $yearsInt,
+            'years_fractional'  => round($yearsFrac, 6),
+            'three_months'      => round($threeMonths, 2),
+            'twenty_per_year'   => round($twentyPerYear, 2),
+            'vacation_days'     => round($vacDays, 6),
+            'vacation_pay'      => round($vacPay, 2),
+            'vacation_premium'  => round($vacPremium, 2),
+            'aguinaldo'         => round($aguinaldo, 2),
+            'seniority_premium' => round($seniority, 2),
+            'total'             => round($total, 2),
         ];
     }
 
     /**
-     * Devuelve los días de vacaciones totales según años completos de servicio.
-     * Reforma 2023 (vigente desde 01-ene-2023). arts. 76-78.
+     * Liquidación / Finiquito (renuncia, término, mutuo acuerdo):
+     *  - Vacaciones + prima 25% proporcionales (año de servicio en curso)
+     *  - Aguinaldo proporcional (año calendario)
+     *  - Prima de antigüedad SOLO si ≥15 años (art. 162)
      */
-    private function vacationDays(int $years): int
+    public function liquidacion(Employee $e): array
     {
-        if ($years === 1) return 12;
-        if ($years === 2) return 14;
-        if ($years === 3) return 16;
-        if ($years === 4) return 18;
-        if ($years === 5) return 20;
+        $sd        = (float) $e->daily_salary;
+        $yearsInt  = $e->start_date->diffInYears($e->end_date);
+        $yearsFrac = $this->yearsExact($e->start_date, $e->end_date);
 
-        // A partir del 6.º año: 22 días, y +2 cada 5 años
-        return 22 + 2 * intdiv($years - 6, 5);
+        /* ───────── Prestaciones proporcionales ───────── */
+        [$vacDays, $vacPay, $vacPremium] = $this->vacacionesProporcionales($e, $sd);
+        $aguinaldo = $this->aguinaldoProporcional($e, $sd);
+
+        /* ───────── Prima de antigüedad: solo si ≥ 15 años ───────── */
+        $seniority = 0.0;
+        if ($yearsInt >= 15) {
+            $seniority = $this->primaAntiguedad($e, /*pagaSin15Anios=*/false, /*proporcional=*/true);
+        }
+
+        $total = $vacPay + $vacPremium + $aguinaldo + $seniority;
+
+        return [
+            'type'              => 'liquidacion',
+            'years'             => $yearsInt,
+            'years_fractional'  => round($yearsFrac, 6),
+            'vacation_days'     => round($vacDays, 6),
+            'vacation_pay'      => round($vacPay, 2),
+            'vacation_premium'  => round($vacPremium, 2),
+            'aguinaldo'         => round($aguinaldo, 2),
+            'seniority_premium' => round($seniority, 2),
+            'total'             => round($total, 2),
+        ];
+    }
+
+    /* ======================== Helpers sustantivos ======================== */
+
+    /** Vacaciones + prima 25% proporcionales con base en *año de servicio actual* (aniversario). */
+    private function vacacionesProporcionales(Employee $e, float $sd): array
+    {
+        // Años completos de servicio
+        $fullYears = $e->start_date->diffInYears($e->end_date);  // 0,1,2,3…
+        $currentServiceYear = $fullYears + 1;                    // 1.º, 2.º, 3.º, 4.º…
+
+        // Aniversario que está corriendo
+        $annivStart = $e->start_date->copy()->addYears($fullYears);  // último aniversario
+        $annivEnd   = $annivStart->copy()->addYear();                // siguiente aniversario
+
+        // Días transcurridos en el año de servicio
+        $daysSinceAnniv   = $annivStart->diffInDays($e->end_date) + 1; // +1 para contar el día de baja
+        $daysServiceYear  = $annivStart->diffInDays($annivEnd);        // 365 o 366
+
+        // Días que corresponden al año de servicio actual
+        $vacEntitlement = $this->vacationDays($currentServiceYear);    // p. ej. en 4.º año = 18
+        $ratio          = min(1.0, max(0.0, $daysSinceAnniv / $daysServiceYear));
+        $vacDays        = $vacEntitlement * $ratio;
+
+        $vacPay     = $sd * $vacDays;        // Vacaciones se calculan sobre SD
+        $vacPremium = $vacPay * 0.25;        // Prima vacacional 25%
+
+        return [$vacDays, $vacPay, $vacPremium];
+    }
+
+    /** Aguinaldo proporcional por año calendario (considera 365/366). */
+    private function aguinaldoProporcional(Employee $e, float $sd): float
+    {
+        $yearStart  = $e->end_date->copy()->startOfYear();
+        $yearEnd    = $e->end_date->copy()->endOfYear();
+        $daysYTD    = $yearStart->diffInDays($e->end_date) + 1;         // del 1/ene a la baja (incluyente)
+        $daysInYear = $yearStart->diffInDays($yearEnd) + 1;             // 365 o 366
+        return $sd * 15 * ($daysYTD / $daysInYear);
+    }
+
+    /** Días de vacaciones legales según el año de servicio (reforma 2023, arts. 76–78). */
+    private function vacationDays(int $serviceYear): int
+    {
+        if ($serviceYear <= 1) return 12;
+        if ($serviceYear === 2) return 14;
+        if ($serviceYear === 3) return 16;
+        if ($serviceYear === 4) return 18;
+        if ($serviceYear === 5) return 20;
+        // Desde el 6.º: 22 días, +2 cada 5 años
+        return 22 + 2 * intdiv($serviceYear - 6, 5);
+    }
+
+    /**
+     * Prima de antigüedad (art. 162 LFT).
+     * - 12 días por año de servicio; salario base = min(SD, 2× SM por zona).
+     * - $pagaSin15Anios: true en despido; false en renuncia (requiere ≥15 años).
+     * - $proporcional: si true, paga fracción de año (práctica común).
+     */
+    private function primaAntiguedad(Employee $e, bool $pagaSin15Anios, bool $proporcional = true): float
+    {
+        $yearsInt = $e->start_date->diffInYears($e->end_date);
+
+        if (!$pagaSin15Anios && $yearsInt < 15) {
+            return 0.0;
+        }
+
+        $smZona     = $this->minWage($e->zone);
+        $baseDiaria = min((float) $e->daily_salary, 2.0 * $smZona);
+
+        $years = $proporcional
+            ? $this->yearsExact($e->start_date, $e->end_date)  // p. ej. 3.2986
+            : (float) $yearsInt;
+
+        $dias = 12.0 * $years;   // permite fracción de año
+        return $baseDiaria * $dias;
+    }
+
+    /** Antigüedad exacta en años (con fracción). Usa días/365 para estabilidad con tus cálculos actuales. */
+    private function yearsExact(Carbon $start, Carbon $end): float
+    {
+        $days = $start->diffInDays($end); // no +1 aquí; buscamos proporción estándar
+        return $days / 365.0;
+    }
+
+    /** Salario mínimo por zona desde .env (valores por defecto si falta). */
+    private function minWage(?string $zone): float
+    {
+        $gen = (float) env('MIN_WAGE_GENERAL', 248.93);
+        $frn = (float) env('MIN_WAGE_FRONTERA', 374.89);
+        return ($zone === 'frontera') ? $frn : $gen;
     }
 }
-

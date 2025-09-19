@@ -3,61 +3,57 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use App\Http\Requests\CalculationRequest;   // (lo crearemos enseguida)
+use App\Http\Requests\CalculationRequest;
 use App\Models\Calculation;
 use App\Models\Employee;
-use App\Services\LiquidationCalculator;     // el servicio de la sección 7
+use App\Services\LiquidationCalculator;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\View\View;
 
-
 class CalculatorController extends Controller
 {
-    /**
-     * Muestra el formulario de cálculo.
-     */
     public function form(): View
     {
         return view('inicio');
     }
 
-    /**
-     * Procesa los datos del usuario, guarda el cálculo y muestra el resultado.
-     */
-    public function calculate(CalculationRequest $request,
-                              LiquidationCalculator $service): View|RedirectResponse
+    public function calculate(CalculationRequest $request, LiquidationCalculator $service): View|RedirectResponse
     {
-        // 1. Crea/actualiza al empleado
+        // Empleado
         $employee = Employee::updateOrCreate(
             [
-                'name'       => $request->input('name'),
-                'start_date' => $request->input('start_date'),
-                'end_date'   => $request->input('end_date'),
+                'name'       => $request->string('name'),
+                'start_date' => $request->date('start_date'),
+                'end_date'   => $request->date('end_date'),
             ],
             [
-                'daily_salary'            => $request->input('daily_salary'),
-                'daily_integrated_salary' => $request->input('sdi'),
-                'zone'                    => $request->input('zone'),
+                'daily_salary'            => $request->float('daily_salary'),
+                'daily_integrated_salary' => $request->input('sdi') ?: null,
+                'zone'                    => $request->string('zone'),
             ]
         );
-$type = $request->input('calc_type', 'indemnizacion');
 
-        // 2. Usa el servicio para obtener los montos
-        $data = $service->indemnizacion($employee);
+        $type = $request->input('calc_type', 'indemnizacion');
 
-        // 3. Guarda el resultado (JSON) en la tabla calculations
+        // Cálculo según tipo
+        if ($type === 'liquidacion') {
+            $data = $service->liquidacion($employee);
+        } else {
+            $data = $service->indemnizacion($employee);
+            $type = 'indemnizacion';
+        }
+
+        // Guarda
         Calculation::create([
             'employee_id' => $employee->id,
-            'type'        => 'indemnizacion',
-            'result_json' => json_encode($data),
+            'type'        => $type,
+            'result_json' => $data, // cast a array en el modelo
         ]);
 
-        // 4. Regresa la vista con los datos
         return view('calculator.result', [
             'employee' => $employee,
             'result'   => $data,
-                'type'     => $type, // ← importante
-
+            'type'     => $type,
         ]);
     }
 }

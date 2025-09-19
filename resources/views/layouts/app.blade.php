@@ -28,16 +28,29 @@
   <meta name="twitter:title" content="{{ $metaTitle }}">
   <meta name="twitter:description" content="{{ $metaDesc }}">
 
+  {{-- Google Tag Manager (head) - solo producción --}}
+  @if(app()->environment('production') && env('GTM_ID'))
+    <script>
+      (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+      new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+      j=d.createElement(s),dl=l!='{{ env('GTM_LAYER','dataLayer') }}'?'&l={{ env('GTM_LAYER','dataLayer') }}':'';
+      j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;
+      f.parentNode.insertBefore(j,f);
+    })(window,document,'script','{{ env('GTM_LAYER','dataLayer') }}','{{ env('GTM_ID') }}');
+    </script>
+  @endif
+
   {{-- CSS (Tailwind / Vite) --}}
   @vite('resources/css/app.css')
 
   {{-- AdSense (solo producción) --}}
   @if(app()->environment('production') && env('ADSENSE_CLIENT'))
-    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8539568158101746"
-     crossorigin="anonymous"></script>
+    <script async
+      src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={{ env('ADSENSE_CLIENT') }}"
+      crossorigin="anonymous"></script>
   @endif
 
-  {{-- JSON-LD: WebApplication + Person (generado con json_encode para no romper Blade) --}}
+  {{-- JSON-LD: WebApplication + Person --}}
   @php
     $webappLd = [
       '@context' => 'https://schema.org',
@@ -51,13 +64,21 @@
     ];
   @endphp
   <script type="application/ld+json">
-  {!! json_encode($webappLd, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) !!}
+    {!! json_encode($webappLd, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) !!}
   </script>
 
   {{-- Stack para inyecciones desde vistas hijas (ej. FAQPage) --}}
   @stack('head')
 </head>
 <body class="min-h-screen bg-gray-50 text-gray-800 antialiased">
+  {{-- Google Tag Manager (noscript) - apenas abre <body> --}}
+  @if(app()->environment('production') && env('GTM_ID'))
+    <noscript>
+      <iframe src="https://www.googletagmanager.com/ns.html?id={{ env('GTM_ID') }}"
+              height="0" width="0" style="display:none;visibility:hidden"></iframe>
+    </noscript>
+  @endif
+
   {{-- H1 accesible (el hero de cada vista usa H2) --}}
   <header class="sr-only">
     <h1>{{ $metaTitle }}</h1>
