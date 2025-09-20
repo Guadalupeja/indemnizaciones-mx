@@ -1,0 +1,30 @@
+name: Sync on DOM Cloud
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Invoke deployment hook
+        uses: distributor/workflow-webhook@v3
+        env:
+          webhook_url: https://my.domcloud.co/api/githubdeploy
+          webhook_secret: ${{ secrets.WEBHOOK_SECRET }}
+          webhook_auth: ${{ secrets.WEBHOOK_AUTH }}
+        with:
+          data: >
+            {"commands":["set -e","cd ~/public_html",
+            "php artisan down --render=\"errors::maintenance\" || true",
+            "git fetch --all","git pull --ff-only",
+            "composer install --no-dev --optimize-autoloader --prefer-dist",
+            "php artisan migrate --force",
+            "npm ci","npm run build",
+            "php artisan storage:link || true",
+            "php artisan config:cache","php artisan route:cache","php artisan view:cache",
+            "php artisan up"]}
