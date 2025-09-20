@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Invoke deployment hook
-        uses: distributor/workflow-webhook@v3
+        uses: distributhor/workflow-webhook@v3
         env:
           webhook_url: https://my.domcloud.co/api/githubdeploy
           webhook_secret: ${{ secrets.WEBHOOK_SECRET }}
