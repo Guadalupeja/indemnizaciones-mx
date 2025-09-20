@@ -90,11 +90,12 @@
 
   <footer class="max-w-4xl mx-auto px-4 pb-8 text-sm text-gray-500">
     <nav class="flex flex-wrap gap-4">
-      <a class="hover:underline" href="#que-es-indemnizacion">¿Qué es indemnización?</a>
-      <a class="hover:underline" href="#que-es-liquidacion">¿Qué es liquidación?</a>
-      <a class="hover:underline" href="#faq">Preguntas frecuentes</a>
-      <a class="hover:underline" href="{{ url('/aviso-privacidad') }}">Aviso de privacidad</a>
-    </nav>
+  <a class="hover:underline" href="{{ route('que-es-indemnizacion') }}">¿Qué es indemnización?</a>
+  <a class="hover:underline" href="{{ route('que-es-liquidacion') }}">¿Qué es liquidación?</a>
+  <a class="hover:underline" href="{{ route('faq') }}">Preguntas frecuentes</a>
+  <a class="hover:underline" href="{{ route('aviso-privacidad') }}">Aviso de privacidad</a>
+</nav>
+
     <p class="mt-2">© {{ date('Y') }} {{ $owner }}. Herramienta informativa; no constituye asesoría legal.</p>
   </footer>
 
