@@ -6,15 +6,14 @@ use Illuminate\Foundation\Http\FormRequest;
 
 class CalculationRequest extends FormRequest
 {
-    // ✅ Permite la acción (si no usas gates/policies)
     public function authorize(): bool
     {
-        return true; // <- aquí estaba el 403
+        return true;
     }
 
     public function rules(): array
     {
-        return [
+        $rules = [
             'calc_type'    => ['required','in:indemnizacion,liquidacion'],
             'name'         => ['required','string','max:120'],
             'start_date'   => ['required','date','before_or_equal:end_date'],
@@ -22,7 +21,32 @@ class CalculationRequest extends FormRequest
             'daily_salary' => ['required','numeric','gt:0'],
             'sdi'          => ['nullable','numeric','gt:0'],
             'zone'         => ['required','in:general,frontera'],
+
+            // Ajustes comunes
+            'vac_days_taken'       => ['nullable','numeric','gte:0'],
+            'aguinaldo_days_paid'  => ['nullable','numeric','gte:0'],
+            'pending_wages'        => ['nullable','numeric','gte:0'],
+            'other_benefits'       => ['nullable','numeric','gte:0'],
+            'estimate_isr'         => ['nullable','boolean'],
+            'isr_rate'             => ['nullable','numeric','between:0,35'],
+            'aguinaldo_exempt_days'=> ['nullable','numeric','gte:0'],
         ];
+
+        // Solo si es indemnización: permitir (no obligar) sus campos
+        if ($this->input('calc_type') === 'indemnizacion') {
+            $rules = array_merge($rules, [
+                'contract_type'        => ['nullable','in:indefinido,determinado_mas_un_ano,determinado_menos_un_ano'],
+                'reinstalacion_valida' => ['nullable','boolean'],
+                'twenty_mode'          => ['nullable','in:auto,si,no'],
+                'seniority_in_despido' => ['nullable','boolean'],
+                'seniority_proportional' => ['nullable','boolean'],
+            ]);
+        } else {
+            // En finiquito, solo proporcional (opcional)
+            $rules['seniority_proportional'] = ['nullable','boolean'];
+        }
+
+        return $rules;
     }
 
     public function messages(): array
@@ -35,7 +59,6 @@ class CalculationRequest extends FormRequest
         ];
     }
 
-    // (Opcional) nombres bonitos en los errores
     public function attributes(): array
     {
         return [

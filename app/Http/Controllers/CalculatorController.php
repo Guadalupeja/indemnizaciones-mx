@@ -19,35 +19,55 @@ class CalculatorController extends Controller
 
     public function calculate(CalculationRequest $request, LiquidationCalculator $service): View|RedirectResponse
     {
-        // Empleado
+        // Empleado (persistimos para historial)
         $employee = Employee::updateOrCreate(
             [
-                'name'       => $request->string('name'),
+                'name'       => (string) $request->input('name'),
                 'start_date' => $request->date('start_date'),
                 'end_date'   => $request->date('end_date'),
             ],
             [
-                'daily_salary'            => $request->float('daily_salary'),
-                'daily_integrated_salary' => $request->input('sdi') ?: null,
-                'zone'                    => $request->string('zone'),
+                'daily_salary'            => (float) $request->input('daily_salary'),
+                'daily_integrated_salary' => $request->filled('sdi') ? (float) $request->input('sdi') : null,
+                'zone'                    => (string) $request->input('zone'),
             ]
         );
 
         $type = $request->input('calc_type', 'indemnizacion');
 
-        // Cálculo según tipo
-        if ($type === 'liquidacion') {
-            $data = $service->liquidacion($employee);
-        } else {
-            $data = $service->indemnizacion($employee);
+        // Supuestos comunes
+        $options = [
+            'vac_days_taken'       => (float) $request->input('vac_days_taken', 0),
+            'aguinaldo_days_paid'  => (float) $request->input('aguinaldo_days_paid', 0),
+            'pending_wages'        => (float) $request->input('pending_wages', 0),
+            'other_benefits'       => (float) $request->input('other_benefits', 0),
+            'estimate_isr'         => (bool)  $request->boolean('estimate_isr', false),
+            'isr_rate'             => (float) $request->input('isr_rate', 0),
+            'aguinaldo_exempt_days'=> (float) $request->input('aguinaldo_exempt_days', 30),
+            'seniority_proportional'=> (bool) $request->boolean('seniority_proportional', true),
+        ];
+
+        if ($type === 'indemnizacion') {
+            // Exclusivos de indemnización
+            $options = array_merge($options, [
+                'contract_type'         => (string) $request->input('contract_type', 'indefinido'),
+                'reinstalacion_valida'  => (bool)   $request->boolean('reinstalacion_valida', false),
+                'twenty_mode'           => (string) $request->input('twenty_mode', 'auto'),
+                'seniority_in_despido'  => (bool)   $request->boolean('seniority_in_despido', true),
+            ]);
+
+            $data = $service->indemnizacion($employee, $options);
             $type = 'indemnizacion';
+        } else {
+            $data = $service->liquidacion($employee, $options);
+            $type = 'liquidacion';
         }
 
-        // Guarda
+        // Guardar cálculo
         Calculation::create([
             'employee_id' => $employee->id,
             'type'        => $type,
-            'result_json' => $data, // cast a array en el modelo
+            'result_json' => $data,
         ]);
 
         return view('calculator.result', [

@@ -10,124 +10,230 @@ class LiquidationCalculator
     /**
      * Indemnización por despido injustificado:
      *  - 3 meses de SDI (arts. 48–50 LFT)
-     *  - 20 días por año (cuando procede) con fracción
+     *  - 20 días por año (cuando procede: ver opciones) con fracción
      *  - Vacaciones + prima 25% proporcionales (año de servicio en curso) (arts. 76 y 80)
      *  - Aguinaldo proporcional (año calendario) (art. 87)
-     *  - Prima de antigüedad (art. 162) con tope 2× SM — se paga aun con <15 años
+     *  - Prima de antigüedad (art. 162) con tope 2× SM; en despido típico se paga aun con <15 años (opción)
+     *  - Ajustes: vacaciones gozadas y aguinaldo ya pagado; sueldos pendientes y otras prestaciones
+     *  - Neto estimado (opcional, simplificado)
      */
-    public function indemnizacion(Employee $e, bool $aplicanVeinteDiasPorAnio = true): array
+    public function indemnizacion(Employee $e, array $opt = []): array
     {
         $sd  = (float) $e->daily_salary;
         $sdi = (float) ($e->daily_integrated_salary ?: $e->daily_salary);
 
-        // Antigüedad (entera y fraccionaria)
-        $yearsInt   = $e->start_date->diffInYears($e->end_date);             // años completos (int)
-        $yearsFrac  = $this->yearsExact($e->start_date, $e->end_date);       // p. ej. 3.2986…
+        $yearsInt   = $e->start_date->diffInYears($e->end_date);
+        $yearsFrac  = $this->yearsExact($e->start_date, $e->end_date);
 
-        /* ───────── Indemnización constitucional ───────── */
-        $threeMonths   = $sdi * 90;
-        $twentyPerYear = $aplicanVeinteDiasPorAnio ? ($sdi * 20 * $yearsFrac) : 0.0;
+        // 3 meses
+        $threeMonths = $sdi * 90.0;
 
-        /* ───────── Prestaciones proporcionales ───────── */
+        // 20 días por año (según supuestos)
+        $aplican20 = $this->decideVeinteDiasPorAnio(
+            $opt['twenty_mode']         ?? 'auto',
+            $opt['contract_type']       ?? 'indefinido',
+            (bool)($opt['reinstalacion_valida'] ?? false)
+        );
+        $twentyPerYear = $aplican20 ? ($sdi * 20.0 * $yearsFrac) : 0.0;
+
+        // Prestaciones proporcionales
         [$vacDays, $vacPay, $vacPremium] = $this->vacacionesProporcionales($e, $sd);
         $aguinaldo = $this->aguinaldoProporcional($e, $sd);
 
-        /* ───────── Prima de antigüedad (siempre en despido) ───────── */
-        $seniority = $this->primaAntiguedad($e, /*pagaSin15Anios=*/true, /*proporcional=*/true);
+        // Prima de antigüedad (despido: puede pagarse aun con <15 años si así se configura)
+        $seniority = $this->primaAntiguedad(
+            $e,
+            (bool)($opt['seniority_in_despido'] ?? true),   // $pagaSin15Anios
+            (bool)($opt['seniority_proportional'] ?? true)  // $proporcional
+        );
 
-        $total = $threeMonths + $twentyPerYear + $vacPay + $vacPremium + $aguinaldo + $seniority;
+        // Ajustes por pagos previos
+        $vacTakenDays = max(0.0, (float)($opt['vac_days_taken'] ?? 0));
+        $vacTakenPay  = $sd * $vacTakenDays;
+        $vacTakenPrem = $vacTakenPay * 0.25;
+
+        $aguinaldoDaysPaid = max(0.0, (float)($opt['aguinaldo_days_paid'] ?? 0));
+        // Interpretación: “días de aguinaldo ya pagados” -> se descuenta SD × días
+        $aguinaldoPaidAmt  = $sd * $aguinaldoDaysPaid;
+
+        $vacPayAdj     = max(0.0, $vacPay     - $vacTakenPay);
+        $vacPremAdj    = max(0.0, $vacPremium - $vacTakenPrem);
+        $aguinaldoAdj  = max(0.0, $aguinaldo  - $aguinaldoPaidAmt);
+
+        $pendingWages  = max(0.0, (float)($opt['pending_wages']  ?? 0));
+        $otherBenefits = max(0.0, (float)($opt['other_benefits'] ?? 0));
+
+        $subtotal = $threeMonths + $twentyPerYear + $vacPayAdj + $vacPremAdj + $aguinaldoAdj + $seniority
+                    + $pendingWages + $otherBenefits;
+
+        // Neto (simplificado y opcional)
+        $netInfo = $this->netoEstimado($e, $subtotal, $aguinaldoAdj, $opt);
 
         return [
-            'type'              => 'indemnizacion',
-            'years'             => $yearsInt,
-            'years_fractional'  => round($yearsFrac, 6),
-            'three_months'      => round($threeMonths, 2),
-            'twenty_per_year'   => round($twentyPerYear, 2),
-            'vacation_days'     => round($vacDays, 6),
-            'vacation_pay'      => round($vacPay, 2),
-            'vacation_premium'  => round($vacPremium, 2),
-            'aguinaldo'         => round($aguinaldo, 2),
-            'seniority_premium' => round($seniority, 2),
-            'total'             => round($total, 2),
+            'type'               => 'indemnizacion',
+            'years'              => $yearsInt,
+            'years_fractional'   => round($yearsFrac, 6),
+
+            'three_months'       => round($threeMonths, 2),
+            'twenty_per_year'    => round($twentyPerYear, 2),
+
+            'vacation_days'      => round($vacDays, 6),
+            'vacation_pay'       => round($vacPayAdj, 2),
+            'vacation_premium'   => round($vacPremAdj, 2),
+            'aguinaldo'          => round($aguinaldoAdj, 2),
+            'seniority_premium'  => round($seniority, 2),
+
+            'pending_wages'      => round($pendingWages, 2),
+            'other_benefits'     => round($otherBenefits, 2),
+
+            'total'              => round($subtotal, 2),
+            'net'                => $netInfo['net'] ?? null,
+            'net_notes'          => $netInfo['notes'] ?? null,
+
+            // Para “Supuestos aplicados”
+            'assumptions'        => [
+                'contract_type'        => $opt['contract_type']        ?? 'indefinido',
+                'reinstalacion_valida' => (bool)($opt['reinstalacion_valida'] ?? false),
+                'twenty_mode'          => $opt['twenty_mode']          ?? 'auto',
+                'aplican_20dias'       => $aplican20,
+                'seniority_in_despido' => (bool)($opt['seniority_in_despido'] ?? true),
+                'seniority_proportional'=> (bool)($opt['seniority_proportional'] ?? true),
+                'vac_days_taken'       => $vacTakenDays,
+                'aguinaldo_days_paid'  => $aguinaldoDaysPaid,
+                'estimate_isr'         => (bool)($opt['estimate_isr'] ?? false),
+                'isr_rate'             => (float)($opt['isr_rate'] ?? 0),
+                'aguinaldo_exempt_days'=> (float)($opt['aguinaldo_exempt_days'] ?? 30),
+            ],
         ];
     }
 
     /**
-     * Liquidación / Finiquito (renuncia, término, mutuo acuerdo):
-     *  - Vacaciones + prima 25% proporcionales (año de servicio en curso)
-     *  - Aguinaldo proporcional (año calendario)
-     *  - Prima de antigüedad SOLO si ≥15 años (art. 162)
+     * Liquidación / Finiquito:
+     *  - Proporcionales (vacaciones + prima 25%, aguinaldo)
+     *  - Prima de antigüedad SOLO si ≥15 años (art. 162) — si se marca “proporcional” aplica fracción de año
+     *  - Ajustes: vacaciones gozadas y aguinaldo pagado; sueldos pendientes y otras prestaciones
+     *  - NO incluye 3 meses ni 20 días/año
+     *  - Neto estimado (opcional, simplificado)
      */
-    public function liquidacion(Employee $e): array
+    public function liquidacion(Employee $e, array $opt = []): array
     {
         $sd        = (float) $e->daily_salary;
         $yearsInt  = $e->start_date->diffInYears($e->end_date);
         $yearsFrac = $this->yearsExact($e->start_date, $e->end_date);
 
-        /* ───────── Prestaciones proporcionales ───────── */
+        // Proporcionales
         [$vacDays, $vacPay, $vacPremium] = $this->vacacionesProporcionales($e, $sd);
         $aguinaldo = $this->aguinaldoProporcional($e, $sd);
 
-        /* ───────── Prima de antigüedad: solo si ≥ 15 años ───────── */
+        // Prima de antigüedad (solo si ≥15 años)
         $seniority = 0.0;
         if ($yearsInt >= 15) {
-            $seniority = $this->primaAntiguedad($e, /*pagaSin15Anios=*/false, /*proporcional=*/true);
+            $seniority = $this->primaAntiguedad(
+                $e,
+                false,        // $pagaSin15Anios
+                (bool)($opt['seniority_proportional'] ?? true)   // $proporcional
+            );
         }
 
-        $total = $vacPay + $vacPremium + $aguinaldo + $seniority;
+        // Ajustes por pagos previos
+        $vacTakenDays = max(0.0, (float)($opt['vac_days_taken'] ?? 0));
+        $vacTakenPay  = $sd * $vacTakenDays;
+        $vacTakenPrem = $vacTakenPay * 0.25;
+
+        $aguinaldoDaysPaid = max(0.0, (float)($opt['aguinaldo_days_paid'] ?? 0));
+        $aguinaldoPaidAmt  = $sd * $aguinaldoDaysPaid;
+
+        $vacPayAdj     = max(0.0, $vacPay     - $vacTakenPay);
+        $vacPremAdj    = max(0.0, $vacPremium - $vacTakenPrem);
+        $aguinaldoAdj  = max(0.0, $aguinaldo  - $aguinaldoPaidAmt);
+
+        $pendingWages  = max(0.0, (float)($opt['pending_wages']  ?? 0));
+        $otherBenefits = max(0.0, (float)($opt['other_benefits'] ?? 0));
+
+        $subtotal = $vacPayAdj + $vacPremAdj + $aguinaldoAdj + $seniority
+                    + $pendingWages + $otherBenefits;
+
+        // Neto (simplificado y opcional)
+        $netInfo = $this->netoEstimado($e, $subtotal, $aguinaldoAdj, $opt);
 
         return [
-            'type'              => 'liquidacion',
-            'years'             => $yearsInt,
-            'years_fractional'  => round($yearsFrac, 6),
-            'vacation_days'     => round($vacDays, 6),
-            'vacation_pay'      => round($vacPay, 2),
-            'vacation_premium'  => round($vacPremium, 2),
-            'aguinaldo'         => round($aguinaldo, 2),
-            'seniority_premium' => round($seniority, 2),
-            'total'             => round($total, 2),
+            'type'               => 'liquidacion',
+            'years'              => $yearsInt,
+            'years_fractional'   => round($yearsFrac, 6),
+
+            'three_months'       => 0.0,
+            'twenty_per_year'    => 0.0,
+
+            'vacation_days'      => round($vacDays, 6),
+            'vacation_pay'       => round($vacPayAdj, 2),
+            'vacation_premium'   => round($vacPremAdj, 2),
+            'aguinaldo'          => round($aguinaldoAdj, 2),
+            'seniority_premium'  => round($seniority, 2),
+
+            'pending_wages'      => round($pendingWages, 2),
+            'other_benefits'     => round($otherBenefits, 2),
+
+            'total'              => round($subtotal, 2),
+            'net'                => $netInfo['net'] ?? null,
+            'net_notes'          => $netInfo['notes'] ?? null,
+
+            'assumptions'        => [
+                'seniority_proportional'=> (bool)($opt['seniority_proportional'] ?? true),
+                'vac_days_taken'       => $vacTakenDays,
+                'aguinaldo_days_paid'  => $aguinaldoDaysPaid,
+                'estimate_isr'         => (bool)($opt['estimate_isr'] ?? false),
+                'isr_rate'             => (float)($opt['isr_rate'] ?? 0),
+                'aguinaldo_exempt_days'=> (float)($opt['aguinaldo_exempt_days'] ?? 30),
+            ],
         ];
     }
 
-    /* ======================== Helpers sustantivos ======================== */
+    /* ======================== LÓGICA DE NEGOCIO ======================== */
 
-    /** Vacaciones + prima 25% proporcionales con base en *año de servicio actual* (aniversario). */
+    private function decideVeinteDiasPorAnio(string $mode, string $contractType, bool $reinstalacionValida): bool
+    {
+        if ($mode === 'si') return true;
+        if ($mode === 'no') return false;
+
+        // AUTO: regla práctica
+        if ($reinstalacionValida) return false;
+        // Si el contrato es indefinido o determinado >=1 año, usualmente procede
+        return in_array($contractType, ['indefinido','determinado_mas_un_ano'], true);
+    }
+
+    /** Vacaciones + prima 25% proporcionales (año de servicio en curso). */
     private function vacacionesProporcionales(Employee $e, float $sd): array
     {
-        // Años completos de servicio
-        $fullYears = $e->start_date->diffInYears($e->end_date);  // 0,1,2,3…
-        $currentServiceYear = $fullYears + 1;                    // 1.º, 2.º, 3.º, 4.º…
+        $fullYears = $e->start_date->diffInYears($e->end_date);
+        $currentServiceYear = $fullYears + 1;
 
-        // Aniversario que está corriendo
-        $annivStart = $e->start_date->copy()->addYears($fullYears);  // último aniversario
-        $annivEnd   = $annivStart->copy()->addYear();                // siguiente aniversario
+        $annivStart = $e->start_date->copy()->addYears($fullYears);
+        $annivEnd   = $annivStart->copy()->addYear();
 
-        // Días transcurridos en el año de servicio
-        $daysSinceAnniv   = $annivStart->diffInDays($e->end_date) + 1; // +1 para contar el día de baja
-        $daysServiceYear  = $annivStart->diffInDays($annivEnd);        // 365 o 366
+        $daysSinceAnniv  = $annivStart->diffInDays($e->end_date) + 1;
+        $daysServiceYear = $annivStart->diffInDays($annivEnd);
 
-        // Días que corresponden al año de servicio actual
-        $vacEntitlement = $this->vacationDays($currentServiceYear);    // p. ej. en 4.º año = 18
+        $vacEntitlement = $this->vacationDays($currentServiceYear);
         $ratio          = min(1.0, max(0.0, $daysSinceAnniv / $daysServiceYear));
         $vacDays        = $vacEntitlement * $ratio;
 
-        $vacPay     = $sd * $vacDays;        // Vacaciones se calculan sobre SD
-        $vacPremium = $vacPay * 0.25;        // Prima vacacional 25%
+        $vacPay     = $sd * $vacDays;
+        $vacPremium = $vacPay * 0.25;
 
         return [$vacDays, $vacPay, $vacPremium];
     }
 
-    /** Aguinaldo proporcional por año calendario (considera 365/366). */
+    /** Aguinaldo proporcional del año calendario. */
     private function aguinaldoProporcional(Employee $e, float $sd): float
     {
         $yearStart  = $e->end_date->copy()->startOfYear();
         $yearEnd    = $e->end_date->copy()->endOfYear();
-        $daysYTD    = $yearStart->diffInDays($e->end_date) + 1;         // del 1/ene a la baja (incluyente)
-        $daysInYear = $yearStart->diffInDays($yearEnd) + 1;             // 365 o 366
-        return $sd * 15 * ($daysYTD / $daysInYear);
+        $daysYTD    = $yearStart->diffInDays($e->end_date) + 1;
+        $daysInYear = $yearStart->diffInDays($yearEnd) + 1; // 365/366
+        return $sd * 15.0 * ($daysYTD / $daysInYear);
     }
 
-    /** Días de vacaciones legales según el año de servicio (reforma 2023, arts. 76–78). */
+    /** Tabla de vacaciones (reforma 2023). */
     private function vacationDays(int $serviceYear): int
     {
         if ($serviceYear <= 1) return 12;
@@ -135,47 +241,59 @@ class LiquidationCalculator
         if ($serviceYear === 3) return 16;
         if ($serviceYear === 4) return 18;
         if ($serviceYear === 5) return 20;
-        // Desde el 6.º: 22 días, +2 cada 5 años
         return 22 + 2 * intdiv($serviceYear - 6, 5);
     }
 
-    /**
-     * Prima de antigüedad (art. 162 LFT).
-     * - 12 días por año de servicio; salario base = min(SD, 2× SM por zona).
-     * - $pagaSin15Anios: true en despido; false en renuncia (requiere ≥15 años).
-     * - $proporcional: si true, paga fracción de año (práctica común).
-     */
+    /** Prima de antigüedad (art. 162 LFT). */
     private function primaAntiguedad(Employee $e, bool $pagaSin15Anios, bool $proporcional = true): float
     {
         $yearsInt = $e->start_date->diffInYears($e->end_date);
-
-        if (!$pagaSin15Anios && $yearsInt < 15) {
-            return 0.0;
-        }
+        if (!$pagaSin15Anios && $yearsInt < 15) return 0.0;
 
         $smZona     = $this->minWage($e->zone);
-        $baseDiaria = min((float) $e->daily_salary, 2.0 * $smZona);
+        $baseDiaria = min((float)$e->daily_salary, 2.0 * $smZona);
 
-        $years = $proporcional
-            ? $this->yearsExact($e->start_date, $e->end_date)  // p. ej. 3.2986
-            : (float) $yearsInt;
+        $years = $proporcional ? $this->yearsExact($e->start_date, $e->end_date) : (float)$yearsInt;
+        $dias  = 12.0 * $years;
 
-        $dias = 12.0 * $years;   // permite fracción de año
         return $baseDiaria * $dias;
     }
 
-    /** Antigüedad exacta en años (con fracción). Usa días/365 para estabilidad con tus cálculos actuales. */
+    /** Antigüedad exacta en años (con fracción). */
     private function yearsExact(Carbon $start, Carbon $end): float
     {
-        $days = $start->diffInDays($end); // no +1 aquí; buscamos proporción estándar
+        $days = $start->diffInDays($end);
         return $days / 365.0;
     }
 
-    /** Salario mínimo por zona desde .env (valores por defecto si falta). */
+    /** Salario mínimo por zona desde .env (defaults). */
     private function minWage(?string $zone): float
     {
         $gen = (float) env('MIN_WAGE_GENERAL', 248.93);
         $frn = (float) env('MIN_WAGE_FRONTERA', 374.89);
         return ($zone === 'frontera') ? $frn : $gen;
+    }
+
+    /** Neto estimado simplificado (opcional). */
+    private function netoEstimado(Employee $e, float $subtotal, float $aguinaldoAdj, array $opt): array
+    {
+        if (!(bool)($opt['estimate_isr'] ?? false)) return ['net' => null, 'notes' => null];
+
+        $sd = (float) $e->daily_salary;
+
+        // Exento de aguinaldo aproximado por días
+        $exentoAguinaldo = $sd * max(0.0, (float)($opt['aguinaldo_exempt_days'] ?? 30));
+        $gravableAguinaldo = max(0.0, $aguinaldoAdj - $exentoAguinaldo);
+
+        // Simplificación: tratamos todo el resto como gravable
+        $gravable = $subtotal - $aguinaldoAdj + $gravableAguinaldo;
+        $rate = max(0.0, min(35.0, (float)($opt['isr_rate'] ?? 0))) / 100.0;
+
+        $retencion = $gravable * $rate;
+        $neto = max(0.0, $subtotal - $retencion);
+
+        $notes = 'Neto estimado con tasa promedio. El cálculo fiscal real depende de tablas ISR, exentos/gravados específicos (p.ej. prima antigüedad 90 UMA), CFDI y acumulados.';
+
+        return ['net' => round($neto, 2), 'notes' => $notes];
     }
 }
