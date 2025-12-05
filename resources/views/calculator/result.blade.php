@@ -4,7 +4,9 @@
 @section('content')
 @php
     use Carbon\Carbon;
+    use Illuminate\Support\Str;
 
+    // Totales/partidas
     $threeMonths     = (float)($result['three_months']      ?? 0);
     $twentyPerYear   = (float)($result['twenty_per_year']   ?? 0);
     $vacPay          = (float)($result['vacation_pay']      ?? 0);
@@ -14,9 +16,10 @@
     $pendingWages    = (float)($result['pending_wages']     ?? 0);
     $otherBenefits   = (float)($result['other_benefits']    ?? 0);
     $total           = (float)($result['total']             ?? 0);
-    $net             = $result['net']   ?? null;
-    $netNotes        = $result['net_notes'] ?? null;
+    $net             = $result['net']        ?? null;
+    $netNotes        = $result['net_notes']  ?? null;
 
+    // Datos contexto
     $start       = Carbon::parse($employee->start_date ?? now());
     $end         = Carbon::parse($employee->end_date   ?? now());
     $years       = max(1, $start->diffInYears($end));
@@ -27,6 +30,32 @@
     $calcType  = $type ?? ($result['type'] ?? 'indemnizacion');
     $isIndem   = $calcType === 'indemnizacion';
     $typeLabel = $isIndem ? 'Indemnización (despido injustificado)' : 'Liquidación / Finiquito';
+
+    // Etiquetas en español para "supuestos aplicados"
+    $assumptionLabels = [
+        'twenty_mode'            => '20 días por año (modo)',
+        'contract_type'          => 'Tipo de contrato',
+        'reinstalacion_valida'   => 'Hubo reinstalación válida',
+        'seniority_in_despido'   => 'Prima de antigüedad aun con < 15 años (despido)',
+        'seniority_proportional' => 'Prima de antigüedad proporcional por fracción',
+        'vac_days_taken'         => 'Vacaciones ya gozadas (días)',
+        'aguinaldo_days_paid'    => 'Aguinaldo ya pagado (días)',
+        'pending_wages'          => 'Sueldos pendientes ($)',
+        'other_benefits'         => 'Otras prestaciones ($)',
+        'estimate_isr'           => 'Calcular neto estimado (ISR)',
+        'isr_rate'               => 'Tasa ISR aproximada (%)',
+        'aguinaldo_exempt_days'  => 'Aguinaldo exento (días)',
+        'years_fractional'       => 'Años (fracción considerada)',
+        'zone'                   => 'Zona salarial',
+        'sdi_used'               => 'SDI utilizado',
+    ];
+
+    // Función auxiliar para mostrar etiquetas en español
+    $labelOf = function(string $key) use ($assumptionLabels) {
+        return $assumptionLabels[$key] ?? ('Parámetro: '.$key);
+    };
+
+    $pluralAnios = $years === 1 ? '1 año' : $years.' años';
 @endphp
 
 <section class="rounded-3xl bg-gradient-to-r from-blue-600 to-indigo-600 p-6 text-white shadow mb-6">
@@ -43,8 +72,8 @@
   </div>
   <p class="mt-3 text-blue-100">
     {{ $isIndem
-       ? 'Incluye 3 meses de SDI y, según supuestos, 20 días por año; se calcula prima de antigüedad aun con <15 años si así se configuró.'
-       : 'Incluye proporcionales (vacaciones + prima 25%, aguinaldo) y prima de antigüedad solo si ≥15 años.' }}
+       ? 'Incluye 3 meses de SDI y, según supuestos, 20 días por año; la prima de antigüedad puede pagarse aun con menos de 15 años si así se configuró.'
+       : 'Incluye proporcionales (vacaciones + prima 25%, aguinaldo) y prima de antigüedad solo si la antigüedad es de 15 años o más.' }}
   </p>
 </section>
 
@@ -53,16 +82,19 @@
   <div class="lg:col-span-1 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
     <p class="text-sm text-gray-500">Total estimado</p>
     <p class="mt-1 text-3xl font-semibold tracking-tight">${{ number_format($total, 2) }}</p>
+
     @if(!is_null($net))
       <p class="mt-3 text-sm text-gray-700"><span class="font-medium">Neto estimado:</span> ${{ number_format($net, 2) }}</p>
-      <p class="mt-1 text-xs text-gray-500">{{ $netNotes }}</p>
+      @if($netNotes)
+        <p class="mt-1 text-xs text-gray-500">{{ $netNotes }}</p>
+      @endif
     @endif
 
     <div class="mt-4 rounded-xl bg-gray-50 p-4 text-sm text-gray-700">
-      <p><span class="font-medium">SDI usado:</span> ${{ number_format($sdiUsed, 2) }} por día</p>
-      <p><span class="font-medium">Antigüedad:</span> {{ $years }} año(s)</p>
-      <p><span class="font-medium">Días del año transcurridos:</span> {{ $daysThisYr }}</p>
-      <p><span class="font-medium">Zona:</span> {{ $zoneLabel }}</p>
+      <p><span class="font-medium">SDI utilizado:</span> ${{ number_format($sdiUsed, 2) }} por día</p>
+      <p><span class="font-medium">Antigüedad:</span> {{ $pluralAnios }}</p>
+      <p><span class="font-medium">Días transcurridos del año:</span> {{ $daysThisYr }}</p>
+      <p><span class="font-medium">Zona salarial:</span> {{ $zoneLabel }}</p>
     </div>
   </div>
 
@@ -75,7 +107,7 @@
           <div class="text-xl font-semibold">${{ number_format($threeMonths, 2) }}</div>
         </div>
         <p class="mt-2 text-sm text-gray-600">Con SDI = ${{ number_format($sdiUsed,2) }} ⇒ {{ number_format($sdiUsed,2) }} × 90.</p>
-        <p class="mt-1 text-xs text-gray-500">Fundamento: arts. 48–50 LFT.</p>
+        <p class="mt-1 text-xs text-gray-500">Fundamento: artículos 48 a 50 de la LFT.</p>
       </div>
 
       <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
@@ -83,20 +115,22 @@
           <h3 class="font-semibold">20 días por año (SDI × 20 × años)</h3>
           <div class="text-xl font-semibold">${{ number_format($twentyPerYear, 2) }}</div>
         </div>
-        <p class="mt-2 text-sm text-gray-600">Con {{ $result['years_fractional'] ?? ($years) }} año(s): {{ number_format($sdiUsed,2) }} × 20 × {{ $result['years_fractional'] ?? ($years) }}.</p>
-        <p class="mt-1 text-xs text-gray-500">Fundamento: arts. 48–50 LFT.</p>
+        <p class="mt-2 text-sm text-gray-600">
+          Con {{ $result['years_fractional'] ?? $years }} año(s): {{ number_format($sdiUsed,2) }} × 20 × {{ $result['years_fractional'] ?? $years }}.
+        </p>
+        <p class="mt-1 text-xs text-gray-500">Fundamento: artículos 48 a 50 de la LFT.</p>
       </div>
     @endif
 
     <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
       <div class="flex items-center justify-between">
-        <h3 class="font-semibold">Vacaciones + prima 25%</h3>
+        <h3 class="font-semibold">Vacaciones + prima del 25%</h3>
         <div class="text-right">
           <div class="text-xl font-semibold">${{ number_format($vacPay + $vacPremium, 2) }}</div>
           <div class="text-xs text-gray-500">(${{ number_format($vacPay,2) }} + ${{ number_format($vacPremium,2) }})</div>
         </div>
       </div>
-      <p class="mt-2 text-sm text-gray-600">Proporcional del año en curso, base SD. Fundamento: arts. 76 y 80 LFT.</p>
+      <p class="mt-2 text-sm text-gray-600">Proporcional del año en curso, base salario diario. Fundamento: artículos 76 y 80 de la LFT.</p>
     </div>
 
     <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
@@ -104,47 +138,57 @@
         <h3 class="font-semibold">Aguinaldo proporcional</h3>
         <div class="text-xl font-semibold">${{ number_format($aguinaldo, 2) }}</div>
       </div>
-      <p class="mt-2 text-sm text-gray-600">Fórmula: SD × 15/365 × días trabajados del año.</p>
-      <p class="mt-1 text-xs text-gray-500">Fundamento: art. 87 LFT.</p>
+      <p class="mt-2 text-sm text-gray-600">Fórmula: SD × (15/365) × días trabajados del año.</p>
+      <p class="mt-1 text-xs text-gray-500">Fundamento: artículo 87 de la LFT.</p>
     </div>
 
     @if($seniority > 0)
-    <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-      <div class="flex items-center justify-between">
-        <h3 class="font-semibold">Prima de antigüedad</h3>
-        <div class="text-xl font-semibold">${{ number_format($seniority, 2) }}</div>
+      <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div class="flex items-center justify-between">
+          <h3 class="font-semibold">Prima de antigüedad</h3>
+          <div class="text-xl font-semibold">${{ number_format($seniority, 2) }}</div>
+        </div>
+        <p class="mt-2 text-sm text-gray-600">
+          12 días por año con tope del salario a 2× salario mínimo de la zona.
+        </p>
+        <p class="mt-1 text-xs text-gray-500">Fundamento: artículo 162 de la LFT.</p>
       </div>
-      <p class="mt-2 text-sm text-gray-600">
-        12 días por año con tope del salario a 2× salario mínimo de la zona. Fundamento: art. 162 LFT.
-      </p>
-    </div>
     @endif
 
     @if($pendingWages > 0 || $otherBenefits > 0)
-    <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-      <h3 class="font-semibold mb-2">Otros conceptos</h3>
-      @if($pendingWages>0)<p class="text-sm text-gray-700">Sueldos pendientes: ${{ number_format($pendingWages,2) }}</p>@endif
-      @if($otherBenefits>0)<p class="text-sm text-gray-700">Otras prestaciones: ${{ number_format($otherBenefits,2) }}</p>@endif
-    </div>
+      <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+        <h3 class="font-semibold mb-2">Otros conceptos</h3>
+        @if($pendingWages>0)
+          <p class="text-sm text-gray-700">Sueldos pendientes: ${{ number_format($pendingWages,2) }}</p>
+        @endif
+        @if($otherBenefits>0)
+          <p class="text-sm text-gray-700">Otras prestaciones: ${{ number_format($otherBenefits,2) }}</p>
+        @endif
+      </div>
     @endif
 
     {{-- Supuestos aplicados --}}
     @if(!empty($result['assumptions']))
-    <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-      <h3 class="font-semibold mb-3">Supuestos aplicados</h3>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm text-gray-700">
-        @foreach($result['assumptions'] as $k => $v)
-          <div><span class="text-gray-500">{{ Str::of($k)->replace('_',' ')->title() }}:</span>
-            @if(is_bool($v)) {{ $v ? 'Sí' : 'No' }}
-            @else {{ is_numeric($v) ? number_format((float)$v, 2) : (string)$v }}
-            @endif
-          </div>
-        @endforeach
+      <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+        <h3 class="font-semibold mb-3">Supuestos aplicados</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm text-gray-700">
+          @foreach($result['assumptions'] as $k => $v)
+            <div>
+              <span class="text-gray-500">{{ $labelOf($k) }}:</span>
+              @if(is_bool($v))
+                {{ $v ? 'Sí' : 'No' }}
+              @elseif(is_numeric($v))
+                {{ number_format((float)$v, 2) }}
+              @else
+                {{ (string)$v }}
+              @endif
+            </div>
+          @endforeach
+        </div>
+        <p class="text-xs text-gray-500 mt-3">
+          Nota: los supuestos impactan los 20 días por año, proporcionalidades y ajustes por pagos previos.
+        </p>
       </div>
-      <p class="text-xs text-gray-500 mt-3">
-        Nota: los supuestos afectan si proceden 20 días/año, proporcionalidades y ajustes por pagos previos.
-      </p>
-    </div>
     @endif
   </div>
 </div>

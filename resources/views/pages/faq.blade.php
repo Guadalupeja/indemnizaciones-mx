@@ -89,10 +89,22 @@
     <aside class="space-y-6">
       <div class="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
         <h4 class="text-base font-semibold mb-3">¿No ves tu duda?</h4>
-        <p class="text-sm text-gray-700">Escríbenos a <a class="underline" href="mailto:{{ env('APP_CONTACT_EMAIL','contacto@example.com') }}">{{ env('APP_CONTACT_EMAIL','contacto@example.com') }}</a>.</p>
+        <p class="text-sm text-gray-700">Escríbenos a <a class="underline" href="mailto:{{ env('APP_CONTACT_EMAIL','contacto@calculadoraindemnizacion.com') }}">{{ env('APP_CONTACT_EMAIL','contacto@calculadoraindemnizacion.com') }}</a>.</p>
       </div>
 
       @includeIf('partials.ads.responsive', ['slot' => '1234567890'])
     </aside>
   </div>
+  {{-- JSON-LD: FAQ extensas --}}
+@include('partials.seo.faq', ['faqs' => [
+  ['q'=>'¿La calculadora sustituye asesoría legal?', 'a'=>'No. Es orientativa y no sustituye asesoría jurídica profesional.'],
+  ['q'=>'¿Qué diferencia hay entre SD y SDI?', 'a'=>'SD es salario por día; SDI integra prestaciones y suele usarse en indemnización para 3 meses y 20 días/año.'],
+  ['q'=>'¿La reinstalación elimina los 20 días por año?', 'a'=>'Si hubo oferta y reinstalación válida, normalmente no proceden los 20 días por año.'],
+  ['q'=>'¿Cómo se calcula la prima de antigüedad?', 'a'=>'Son 12 días por año con tope a 2× salario mínimo de la zona (art. 162 LFT).'],
+  ['q'=>'¿Puedo estimar el neto?', 'a'=>'Sí, la herramienta permite estimar ISR de forma simplificada; puede diferir del CFDI.'],
+  ['q'=>'¿Qué es el aguinaldo proporcional?', 'a'=>'Es la parte del aguinaldo que corresponde al tiempo trabajado en el año en curso (art. 87 LFT).'],
+  ['q'=>'¿Qué pasa con vacaciones ya gozadas?', 'a'=>'Si ya se pagaron, el sistema descuenta SD×días y su prima 25% del total.'],
+  ['q'=>'¿Qué es la zona salarial?', 'a'=>'General o Frontera Norte; se usa para topes (por ejemplo, prima de antigüedad a 2× salario mínimo).']
+]])
+
 @endsection

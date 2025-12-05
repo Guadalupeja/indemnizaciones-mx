@@ -67,8 +67,17 @@
     {!! json_encode($webappLd, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES) !!}
   </script>
 
+  {{-- JSON-LD global: Website/Organization --}}
+@includeIf('partials.seo.website_org')
+
+
   {{-- Stack para inyecciones desde vistas hijas (ej. FAQPage) --}}
   @stack('head')
+
+  @if(request()->cookie('cookies_ok'))
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={{ env('ADSENSE_CLIENT','') }}" crossorigin="anonymous"></script>
+@endif
+
 </head>
 <body class="min-h-screen bg-gray-50 text-gray-800 antialiased">
   {{-- Google Tag Manager (noscript) - apenas abre <body> --}}
@@ -88,18 +97,74 @@
     @yield('content')
   </main>
 
-  <footer class="max-w-4xl mx-auto px-4 pb-8 text-sm text-gray-500">
-    <nav class="flex flex-wrap gap-4">
-  <a class="hover:underline" href="{{ route('que-es-indemnizacion') }}">¿Qué es indemnización?</a>
-  <a class="hover:underline" href="{{ route('que-es-liquidacion') }}">¿Qué es liquidación?</a>
-  <a class="hover:underline" href="{{ route('faq') }}">Preguntas frecuentes</a>
-  <a class="hover:underline" href="{{ route('aviso-privacidad') }}">Aviso de privacidad</a>
-</nav>
+  <footer class="mt-12 border-t">
+  <div class="max-w-5xl mx-auto px-4 py-8 grid sm:grid-cols-2 lg:grid-cols-4 gap-6 text-sm">
+    <div>
+      <h3 class="font-semibold mb-2">Herramientas</h3>
+      <ul class="space-y-1">
+        <li><a class="underline" href="{{ route('inicio') }}">Calculadora</a></li>
+        <li><a class="underline" href="{{ route('test-caso-laboral') }}">Test: ¿qué me corresponde?</a></li>
+        <li><a class="underline" href="{{ route('calc.sdi') }}">Calculadora SDI</a></li>
+        <li><a class="underline" href="{{ route('calc.aguinaldo') }}">Aguinaldo proporcional</a></li>
+        <li><a class="underline" href="{{ route('calc.vacaciones') }}">Vacaciones + prima</a></li>
+      </ul>
+    </div>
 
-    <p class="mt-2">© {{ date('Y') }} {{ $owner }}. Herramienta informativa; no constituye asesoría legal.</p>
-  </footer>
+    <div>
+      <h3 class="font-semibold mb-2">Contenido</h3>
+      <ul class="space-y-1">
+        <li><a class="underline" href="{{ route('guias') }}">Guías</a></li>
+        <li><a class="underline" href="{{ route('blog') }}">Blog</a></li>
+        <li><a class="underline" href="{{ route('plantillas') }}">Plantillas</a></li>
+        <li><a class="underline" href="{{ route('mapa-sitio') }}">Mapa del sitio</a></li>
+      </ul>
+    </div>
+
+    <div>
+      <h3 class="font-semibold mb-2">Acerca de</h3>
+      <ul class="space-y-1">
+        <li><a class="underline" href="{{ route('sobre') }}">Sobre</a></li>
+        <li><a class="underline" href="{{ route('contacto') }}">Contacto</a></li>
+      </ul>
+    </div>
+
+    <div>
+      <h3 class="font-semibold mb-2">Legal</h3>
+      <ul class="space-y-1">
+        <li><a class="underline" href="{{ route('aviso-privacidad') }}">Aviso de privacidad</a></li>
+        <li><a class="underline" href="{{ route('politica-cookies') }}">Política de cookies</a></li>
+        <li><a class="underline" href="{{ route('terminos') }}">Términos y condiciones</a></li>
+        <li><a class="underline" href="{{ route('sitemap.xml') }}">Sitemap XML</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="text-center text-xs text-gray-500 py-4">
+    © {{ now()->year }}. Herramienta informativa; no sustituye asesoría legal.
+  </div>
+</footer>
+
 
   @vite('resources/js/app.js')
   @stack('scripts')
+
+  @if(!request()->cookie('cookies_ok'))
+<div id="cookie-banner" class="fixed bottom-4 inset-x-4 z-50 rounded-xl bg-white shadow-lg border p-4 flex flex-col sm:flex-row items-start sm:items-center gap-3">
+  <p class="text-sm text-gray-700">
+    Usamos cookies para mejorar la experiencia y mostrar publicidad (AdSense) tras tu consentimiento.
+    Lee la <a class="underline" href="{{ route('politica-cookies') }}">política de cookies</a>.
+  </p>
+  <div class="flex gap-2 ml-auto">
+    <button id="cookie-accept" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white">Aceptar</button>
+    <a href="{{ route('politica-cookies') }}" class="px-3 py-1.5 rounded-lg border">Configurar</a>
+  </div>
+</div>
+<script>
+document.getElementById('cookie-accept')?.addEventListener('click', async () => {
+  await fetch("{{ url('/set-cookies-ok') }}", {method:'POST', headers:{'X-CSRF-TOKEN':'{{ csrf_token() }}'}});
+  document.getElementById('cookie-banner')?.remove();
+});
+</script>
+@endif
+
 </body>
 </html>

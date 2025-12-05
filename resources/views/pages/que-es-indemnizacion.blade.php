@@ -76,4 +76,27 @@
       @includeIf('partials.ads.responsive', ['slot' => '1234567890'])
     </aside>
   </div>
+  {{-- JSON-LD: Breadcrumbs --}}
+@include('partials.seo.breadcrumbs', [
+  'items' => [
+    ['name'=>'Inicio','url'=>route('inicio')],
+    ['name'=>'¿Qué es indemnización?','url'=>url()->current()]
+  ]
+])
+
+{{-- JSON-LD: Article --}}
+@include('partials.seo.article', [
+  'headline'    => '¿Qué es la indemnización por despido injustificado?',
+  'description' => 'Explicación clara de la indemnización: 3 meses, 20 días por año cuando procede, y prestaciones proporcionales.',
+  'author'      => 'Equipo',
+])
+
+{{-- JSON-LD: FAQ específicas --}}
+@include('partials.seo.faq', ['faqs' => [
+  ['q'=>'¿Siempre proceden 20 días por año?',
+   'a'=>'No. Depende del tipo de contrato, condiciones y si hubo oferta de reinstalación válida.'],
+  ['q'=>'¿El SDI es obligatorio?',
+   'a'=>'Es el estándar para 3 meses y 20 días/año; si no lo conoces, la herramienta estima según tus datos.']
+]])
+
 @endsection

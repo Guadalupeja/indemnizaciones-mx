@@ -73,4 +73,29 @@
       @includeIf('partials.ads.responsive', ['slot' => '1234567890'])
     </aside>
   </div>
+
+
+  {{-- JSON-LD: Breadcrumbs --}}
+@include('partials.seo.breadcrumbs', [
+  'items' => [
+    ['name'=>'Inicio','url'=>route('inicio')],
+    ['name'=>'¿Qué es liquidación/finiquito?','url'=>url()->current()]
+  ]
+])
+
+{{-- JSON-LD: Article --}}
+@include('partials.seo.article', [
+  'headline'    => '¿Qué es la liquidación o finiquito?',
+  'description' => 'Qué incluye el finiquito: proporcionales (vacaciones y prima 25%, aguinaldo) y prima de antigüedad si la antigüedad ≥15 años.',
+  'author'      => 'Equipo',
+])
+
+{{-- JSON-LD: FAQ específicas --}}
+@include('partials.seo.faq', ['faqs' => [
+  ['q'=>'¿Incluye 3 meses o 20 días por año?',
+   'a'=>'No. El finiquito no incluye 3 meses ni 20 días/año; se compone de proporcionales y conceptos pendientes.'],
+  ['q'=>'¿Cuándo aplica la prima de antigüedad?',
+   'a'=>'En finiquito aplica si la antigüedad es de al menos 15 años (art. 162 LFT).']
+]])
+
 @endsection

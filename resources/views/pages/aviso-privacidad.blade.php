@@ -74,7 +74,7 @@
     <p>
       Para ejercer tus derechos de acceso, rectificación, cancelación u oposición, o revocar tu consentimiento,
       contáctanos en
-      <a class="underline" href="mailto:{{ env('APP_CONTACT_EMAIL','contacto@example.com') }}">{{ env('APP_CONTACT_EMAIL','contacto@example.com') }}</a>.
+      <a class="underline" href="mailto:{{ env('APP_CONTACT_EMAIL','contacto@calculadoraindemnizacion.com') }}">{{ env('APP_CONTACT_EMAIL','contacto@calculadoraindemnizacion.com') }}</a>.
       @if(env('APP_CONTACT_PHONE'))
         También al {{ env('APP_CONTACT_PHONE') }}.
       @endif
