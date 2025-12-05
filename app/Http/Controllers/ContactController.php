@@ -5,14 +5,23 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
 use App\Mail\ContactMessage;
+use Illuminate\Contracts\Queue\ShouldQueue;
 
 class ContactController extends Controller
 {
+    /** Muestra el formulario (GET /contacto) */
+    public function form()
+    {
+        return view('pages.contacto');
+    }
+
+    /** Procesa el envío (POST /contacto) */
     public function send(Request $request)
     {
-        // Anti-spam: “honeypot”
+        // Anti-spam (honeypot): el input "website" NO debe venir lleno
         if ($request->filled('website')) {
-            return back()->with('ok', 'Gracias.')->withInput(); // ignora bots
+            // Ignora bots silenciosamente
+            return back()->with('ok', 'Gracias.')->withInput();
         }
 
         $data = $request->validate([
@@ -28,10 +37,23 @@ class ContactController extends Controller
             'politica.accepted' => 'Debes aceptar la política de privacidad.',
         ]);
 
-        // Enviar correo al buzón de contacto
+        // A quién llega el correo de contacto
         $destinatario = 'contacto@calculadoraindemnizacion.com';
-        Mail::to($destinatario)->send(new ContactMessage($data));
 
-        return redirect()->route('contacto.form')->with('ok', '¡Gracias! Tu mensaje fue enviado correctamente.');
+        // Envia Mailable con Reply-To del usuario
+        $mailable = (new ContactMessage($data))
+            ->replyTo($data['email'], $data['nombre']);
+
+        // ¿Quieres colas? Si tienes QUEUE_CONNECTION=database y worker activo, usa queue():
+        if (config('queue.default') !== 'sync') {
+            Mail::to($destinatario)->queue($mailable);
+        } else {
+            Mail::to($destinatario)->send($mailable);
+        }
+
+        // Redirige a la ruta GET del formulario (nombre: contacto)
+        return redirect()
+            ->route('contacto')
+            ->with('ok', '¡Gracias! Tu mensaje fue enviado correctamente.');
     }
 }

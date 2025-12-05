@@ -11,7 +11,7 @@
     </div>
   @endif
 
-  <form method="POST" action="{{ route('contacto') }}" class="space-y-4" autocomplete="off" novalidate>
+  <form method="POST" action="{{ route('contacto.send') }}" class="space-y-4" autocomplete="off" novalidate>
     @csrf
 
     {{-- Honeypot (oculto para humanos) --}}
