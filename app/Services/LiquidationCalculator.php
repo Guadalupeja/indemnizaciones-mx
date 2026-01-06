@@ -154,7 +154,10 @@ class LiquidationCalculator
                     + $pendingWages + $otherBenefits;
 
         // Neto (simplificado y opcional)
-        $netInfo = $this->netoEstimado($e, $subtotal, $aguinaldoAdj, $opt);
+        $netInfo = $this->netoEstimado($e, $subtotal, $aguinaldoAdj, array_merge($opt, [
+    'seniority_gross' => $seniority,    // <- añade esta línea
+]));
+
 
         return [
             'type'               => 'liquidacion',
@@ -263,37 +266,52 @@ class LiquidationCalculator
     private function yearsExact(Carbon $start, Carbon $end): float
     {
         $days = $start->diffInDays($end);
-        return $days / 365.0;
+        return $days / 365.2425; // promedio astronómico
     }
 
     /** Salario mínimo por zona desde .env (defaults). */
     private function minWage(?string $zone): float
     {
-        $gen = (float) env('MIN_WAGE_GENERAL', 248.93);
-        $frn = (float) env('MIN_WAGE_FRONTERA', 374.89);
+        $gen = (float) env('MIN_WAGE_GENERAL', 315.04);
+        $frn = (float) env('MIN_WAGE_FRONTERA', 440.87);
         return ($zone === 'frontera') ? $frn : $gen;
     }
 
     /** Neto estimado simplificado (opcional). */
     private function netoEstimado(Employee $e, float $subtotal, float $aguinaldoAdj, array $opt): array
-    {
-        if (!(bool)($opt['estimate_isr'] ?? false)) return ['net' => null, 'notes' => null];
-
-        $sd = (float) $e->daily_salary;
-
-        // Exento de aguinaldo aproximado por días
-        $exentoAguinaldo = $sd * max(0.0, (float)($opt['aguinaldo_exempt_days'] ?? 30));
-        $gravableAguinaldo = max(0.0, $aguinaldoAdj - $exentoAguinaldo);
-
-        // Simplificación: tratamos todo el resto como gravable
-        $gravable = $subtotal - $aguinaldoAdj + $gravableAguinaldo;
-        $rate = max(0.0, min(35.0, (float)($opt['isr_rate'] ?? 0))) / 100.0;
-
-        $retencion = $gravable * $rate;
-        $neto = max(0.0, $subtotal - $retencion);
-
-        $notes = 'Neto estimado con tasa promedio. El cálculo fiscal real depende de tablas ISR, exentos/gravados específicos (p.ej. prima antigüedad 90 UMA), CFDI y acumulados.';
-
-        return ['net' => round($neto, 2), 'notes' => $notes];
+{
+    if (!(bool)($opt['estimate_isr'] ?? false)) {
+        return ['net' => null, 'notes' => null];
     }
+
+    // Parámetros desde .env
+    $umaDaily = (float) env('UMA_VALUE_DAILY', 113.14);          // placeholder: UMA 2025
+    $aguinaldoExemptUMA = (float) env('AGUINALDO_EXEMPT_UMA', 30);
+    $seniorityExemptUMA = (float) env('SENIORITY_EXEMPT_UMA', 90);
+
+    // Tasa “promedio” configurable (sigue tu enfoque simplificado)
+    $rate = max(0.0, min(35.0, (float)($opt['isr_rate'] ?? 0))) / 100.0;
+
+    // 1) Exento de aguinaldo por UMA (NO por “días”)
+    $exentoAguinaldo = $umaDaily * $aguinaldoExemptUMA;
+    $gravableAguinaldo = max(0.0, $aguinaldoAdj - $exentoAguinaldo);
+
+    // 2) Intento de separar prima de antigüedad si el front la envía (opcional)
+    $seniorityGross = max(0.0, (float)($opt['seniority_gross'] ?? 0.0));
+    $seniorityExempt = min($seniorityGross, $umaDaily * $seniorityExemptUMA);
+    $seniorityGravable = max(0.0, $seniorityGross - $seniorityExempt);
+
+    // 3) Resto gravable (subtotal incluye aguinaldo y prima)
+    $resto = max(0.0, $subtotal - $aguinaldoAdj - $seniorityGross);
+
+    $gravableTotal = $resto + $gravableAguinaldo + $seniorityGravable;
+    $retencion = $gravableTotal * $rate;
+    $neto = max(0.0, $subtotal - $retencion);
+
+    $notes = 'Neto estimado con tasa promedio y topes vigentes: aguinaldo exento 30 UMA y prima de antigüedad exenta 90 UMA. '
+           . 'La determinación real depende de tablas ISR, acumulados y CFDI. Actualiza UMA_VALUE_DAILY cuando INEGI publique la UMA vigente.';
+
+    return ['net' => round($neto, 2), 'notes' => $notes];
+}
+
 }
